@@ -92,22 +92,31 @@ async function getGeminiSummary(description: string): Promise<string> {
         return description.length > 300 ? description.substring(0, 297) + '...' : description;
     }
     try {
+        console.log("Calling Gemini API with key:", geminiApiKey ? geminiApiKey.substring(0, 10) + '...' : 'MISSING');
+        console.log("Current origin:", window.location.origin);
+        console.log("Current hostname:", window.location.hostname);
         const prompt = `Summarize this book description for a book club in 2-3 concise sentences. Description: "${description}"`;
         const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
         return response.text.trim();
     } catch (error: any) {
         console.error("Failed to get summary from Gemini:", error);
         // Log more details about the error
-        if (error?.error?.code === 400 && error?.error?.message?.includes('expired')) {
-            console.error("API Key Error Details:", {
-                hasApiKey: !!geminiApiKey,
-                apiKeyLength: geminiApiKey?.length || 0,
-                apiKeyPrefix: geminiApiKey ? geminiApiKey.substring(0, 10) + '...' : 'N/A',
-                errorCode: error.error?.code,
-                errorMessage: error.error?.message,
-                errorReason: error.error?.details?.[0]?.reason
-            });
+        console.error("Error Details:", {
+            hasApiKey: !!geminiApiKey,
+            apiKeyLength: geminiApiKey?.length || 0,
+            apiKeyPrefix: geminiApiKey ? geminiApiKey.substring(0, 10) + '...' : 'N/A',
+            errorCode: error?.error?.code || error?.code,
+            errorStatus: error?.error?.status || error?.status,
+            errorMessage: error?.error?.message || error?.message,
+            errorReason: error?.error?.details?.[0]?.reason,
+            fullError: error
+        });
+        
+        // If it's a 405 error, it means nginx is intercepting the request
+        if (error?.error?.code === 405 || error?.code === 405) {
+            console.error("405 Error: Request is being intercepted by nginx. This suggests the API request is going to the wrong URL.");
         }
+        
         return description.length > 300 ? description.substring(0, 297) + '...' : description;
     }
 }

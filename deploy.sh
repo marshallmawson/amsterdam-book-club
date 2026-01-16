@@ -21,6 +21,14 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}Starting deployment to Cloud Run...${NC}"
 
+# Load environment variables from .env.local if it exists and variables aren't already set
+if [ -f .env.local ]; then
+    echo -e "${GREEN}Loading environment variables from .env.local...${NC}"
+    set -a
+    source .env.local
+    set +a
+fi
+
 # Check if required environment variables are set
 MISSING_VARS=()
 if [ -z "$GEMINI_API_KEY" ]; then
@@ -56,37 +64,11 @@ gcloud services enable cloudbuild.googleapis.com
 gcloud services enable run.googleapis.com
 gcloud services enable containerregistry.googleapis.com
 
-# Build the Docker image with all required build arguments
-echo -e "${GREEN}Building Docker image...${NC}"
-docker build \
-    --build-arg GEMINI_API_KEY="${GEMINI_API_KEY}" \
-    --build-arg VITE_FIREBASE_API_KEY="${VITE_FIREBASE_API_KEY}" \
-    --build-arg VITE_FIREBASE_AUTH_DOMAIN="${VITE_FIREBASE_AUTH_DOMAIN}" \
-    --build-arg VITE_FIREBASE_PROJECT_ID="${VITE_FIREBASE_PROJECT_ID}" \
-    --build-arg VITE_FIREBASE_STORAGE_BUCKET="${VITE_FIREBASE_STORAGE_BUCKET}" \
-    --build-arg VITE_FIREBASE_MESSAGING_SENDER_ID="${VITE_FIREBASE_MESSAGING_SENDER_ID}" \
-    --build-arg VITE_FIREBASE_APP_ID="${VITE_FIREBASE_APP_ID}" \
-    --build-arg VITE_FIREBASE_MEASUREMENT_ID="${VITE_FIREBASE_MEASUREMENT_ID}" \
-    -t ${IMAGE_NAME} .
-
-# Push the image to Google Container Registry
-echo -e "${GREEN}Pushing image to GCR...${NC}"
-docker push ${IMAGE_NAME}
-
-# Deploy to Cloud Run
-echo -e "${GREEN}Deploying to Cloud Run...${NC}"
-gcloud run deploy ${SERVICE_NAME} \
-    --image ${IMAGE_NAME} \
-    --platform managed \
-    --region ${REGION} \
-    --allow-unauthenticated \
-    --port 8080 \
-    --memory 512Mi \
-    --cpu 1 \
-    --min-instances 0 \
-    --max-instances 10 \
-    --timeout 300 \
-    --set-env-vars "GEMINI_API_KEY=${GEMINI_API_KEY}"
+# Use Cloud Build to build and deploy (no Docker Desktop needed!)
+echo -e "${GREEN}Building and deploying with Cloud Build (no local Docker required)...${NC}"
+gcloud builds submit \
+    --config=cloudbuild.yaml \
+    --substitutions=_GEMINI_API_KEY="${GEMINI_API_KEY}",_VITE_FIREBASE_API_KEY="${VITE_FIREBASE_API_KEY}",_VITE_FIREBASE_AUTH_DOMAIN="${VITE_FIREBASE_AUTH_DOMAIN}",_VITE_FIREBASE_PROJECT_ID="${VITE_FIREBASE_PROJECT_ID}",_VITE_FIREBASE_STORAGE_BUCKET="${VITE_FIREBASE_STORAGE_BUCKET}",_VITE_FIREBASE_MESSAGING_SENDER_ID="${VITE_FIREBASE_MESSAGING_SENDER_ID}",_VITE_FIREBASE_APP_ID="${VITE_FIREBASE_APP_ID}",_VITE_FIREBASE_MEASUREMENT_ID="${VITE_FIREBASE_MEASUREMENT_ID}",_SERVICE_NAME="${SERVICE_NAME}",_REGION="${REGION}"
 
 echo -e "${GREEN}Deployment complete!${NC}"
 SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --region ${REGION} --format 'value(status.url)' 2>/dev/null || echo "N/A")
