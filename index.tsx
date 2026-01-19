@@ -60,8 +60,57 @@ interface Submission extends Book {
 }
 
 type UserVotes = { [bookId: string]: number };
-type Page = 'login' | 'proposals' | 'propose' | 'submissions' | 'userVotes' | 'meetings' | 'accountSettings';
+type Page = 'login' | 'signup' | 'proposals' | 'propose' | 'submissions' | 'userVotes' | 'meetings' | 'accountSettings';
 type AppPhase = 'submission' | 'voting' | 'default';
+
+// --- URL ROUTING UTILITIES ---
+const pathToPage = (path: string): Page | null => {
+    const normalizedPath = path.toLowerCase().trim();
+    if (normalizedPath === '/' || normalizedPath === '') {
+        return 'login'; // Root shows login page
+    }
+    switch (normalizedPath) {
+        case '/signup':
+            return 'signup';
+        case '/proposals':
+            return 'proposals';
+        case '/meetings':
+            return 'meetings';
+        case '/my-submissions':
+            return 'submissions';
+        case '/my-votes':
+            return 'userVotes';
+        case '/account-settings':
+            return 'accountSettings';
+        default:
+            return 'login'; // Invalid route, default to login
+    }
+};
+
+const pageToPath = (page: Page): string | null => {
+    // Pages that don't have URLs (modal/transient states)
+    if (page === 'propose') {
+        return null;
+    }
+    switch (page) {
+        case 'login':
+            return '/';
+        case 'signup':
+            return '/signup';
+        case 'proposals':
+            return '/proposals';
+        case 'meetings':
+            return '/meetings';
+        case 'submissions':
+            return '/my-submissions';
+        case 'userVotes':
+            return '/my-votes';
+        case 'accountSettings':
+            return '/account-settings';
+        default:
+            return null;
+    }
+};
 
 interface VoteCounts {
     upvotes: number;
@@ -728,8 +777,8 @@ const ScheduleModal = ({ book, onClose, onSchedule, onUnschedule }: { book: Subm
 
 // --- PAGE COMPONENTS ---
 
-const LoginScreen = ({ onLogin, onSignUp }: { onLogin: (identifier: string, pass: string) => Promise<string | null>, onSignUp: (name: string, email: string, pass: string, code: string) => Promise<string | null> }) => {
-    const [isSignUp, setIsSignUp] = useState(false);
+const LoginScreen = ({ onLogin, onSignUp, initialMode = false, onModeChange }: { onLogin: (identifier: string, pass: string) => Promise<string | null>, onSignUp: (name: string, email: string, pass: string, code: string) => Promise<string | null>, initialMode?: boolean, onModeChange?: (isSignUp: boolean) => void }) => {
+    const [isSignUp, setIsSignUp] = useState(initialMode);
     
     // Login state
     const [loginIdentifier, setLoginIdentifier] = useState('');
@@ -769,9 +818,23 @@ const LoginScreen = ({ onLogin, onSignUp }: { onLogin: (identifier: string, pass
     };
 
     const toggleMode = () => {
-        setIsSignUp(!isSignUp);
+        const newMode = !isSignUp;
+        setIsSignUp(newMode);
         setError(null);
+        if (onModeChange) {
+            onModeChange(newMode);
+        }
     };
+
+    // Sync with initialMode prop changes (from URL)
+    useEffect(() => {
+        setIsSignUp(initialMode);
+    }, [initialMode]);
+
+    // Sync with initialMode prop changes (from URL)
+    useEffect(() => {
+        setIsSignUp(initialMode);
+    }, [initialMode]);
 
     const titleText = isSignUp ? "Create an Account" : "Welcome Back";
     const subText = isSignUp ? "Join the club! You'll need an invite code." : "Please enter your details to log in.";
@@ -1453,7 +1516,18 @@ const App = () => {
         const savedUser = localStorage.getItem('bookClubUser');
         return savedUser ? JSON.parse(savedUser) : null;
     });
-    const [page, setPage] = useState<Page>('proposals');
+    // Initialize page from URL or default to 'login' if not logged in, 'proposals' if logged in
+    const getInitialPage = (): Page => {
+        const path = window.location.pathname;
+        const pageFromPath = pathToPage(path);
+        // If user is logged in and on login/signup page, default to proposals
+        const savedUser = localStorage.getItem('bookClubUser');
+        if (savedUser && (pageFromPath === 'login' || pageFromPath === 'signup')) {
+            return 'proposals';
+        }
+        return pageFromPath || (savedUser ? 'proposals' : 'login');
+    };
+    const [page, setPage] = useState<Page>(getInitialPage);
     const [submissions, setSubmissions] = useState<Submission[]>([]); // Source of truth from Firestore
     const [displayedSubmissions, setDisplayedSubmissions] = useState<Submission[]>([]); // For rendering with stable sorting
     const [userVotes, setUserVotes] = useState<UserVotes>({});
@@ -1547,6 +1621,62 @@ const App = () => {
         return () => unsubscribe();
     }, [user]);
 
+    // Sync URL with page state on initial mount and handle redirects
+    useEffect(() => {
+        if (!user) {
+            // If not logged in, ensure URL matches login/signup pages
+            const path = window.location.pathname;
+            const pageFromPath = pathToPage(path);
+            if (pageFromPath === 'login' || pageFromPath === 'signup') {
+                const expectedPath = pageToPath(pageFromPath);
+                if (expectedPath && window.location.pathname !== expectedPath) {
+                    window.history.replaceState({}, '', expectedPath);
+                }
+                if (pageFromPath !== page) {
+                    setPage(pageFromPath);
+                }
+            } else {
+                // Logged out user on protected route, redirect to login
+                window.history.replaceState({}, '', '/');
+                setPage('login');
+            }
+        } else {
+            // If logged in and on login/signup page, redirect to proposals
+            if (page === 'login' || page === 'signup') {
+                window.history.replaceState({}, '', '/proposals');
+                setPage('proposals');
+            } else {
+                // Ensure URL matches page state
+                const path = window.location.pathname;
+                const pageFromPath = pathToPage(path);
+                if (pageFromPath && pageFromPath !== page && pageFromPath !== 'login' && pageFromPath !== 'signup') {
+                    setPage(pageFromPath);
+                } else if (pageFromPath === null || pageFromPath === 'login' || pageFromPath === 'signup') {
+                    window.history.replaceState({}, '', '/proposals');
+                    setPage('proposals');
+                }
+            }
+        }
+    }, []); // Only run on mount
+
+    // Handle browser back/forward buttons
+    useEffect(() => {
+        const handlePopState = (event: PopStateEvent) => {
+            const path = window.location.pathname;
+            const pageFromPath = pathToPage(path);
+            if (pageFromPath !== null) {
+                setPage(pageFromPath);
+            } else {
+                // Invalid route, redirect to /proposals
+                window.history.replaceState({}, '', '/proposals');
+                setPage('proposals');
+            }
+        };
+
+        window.addEventListener('popstate', handlePopState);
+        return () => window.removeEventListener('popstate', handlePopState);
+    }, []);
+
     // This effect sorts the list on first load. On subsequent updates, it checks if books were added/removed.
     useEffect(() => {
         if (isFirstLoadRef.current && submissions.length > 0) {
@@ -1638,6 +1768,8 @@ const App = () => {
             };
             localStorage.setItem('bookClubUser', JSON.stringify(loggedInUser));
             setUser(loggedInUser);
+            // Redirect to proposals after login
+            handlePageChange('proposals');
             return null; // Success
         } catch (error) {
             console.error("Login error:", error);
@@ -1681,6 +1813,8 @@ const App = () => {
             };
             localStorage.setItem('bookClubUser', JSON.stringify(newUser));
             setUser(newUser);
+            // Redirect to proposals after signup
+            handlePageChange('proposals');
             return null; // Success
         } catch (error) {
             console.error("Sign up error:", error);
@@ -1693,21 +1827,42 @@ const App = () => {
         localStorage.removeItem('bookClubUser');
         setUser(null);
         setIsUserMenuOpen(false);
+        // Redirect to login after logout
+        handlePageChange('login');
     };
 
     const handleUserIconClick = () => {
         setIsUserMenuOpen(prev => !prev);
     };
 
+    // Handle page changes and update URL accordingly
+    const handlePageChange = (newPage: Page) => {
+        setPage(newPage);
+        const path = pageToPath(newPage);
+        // Only update URL if the page has a path (skip 'propose')
+        if (path !== null) {
+            window.history.pushState({ page: newPage }, '', path);
+        }
+    };
+
+    // Handle login/signup mode change (navigate between / and /signup)
+    const handleAuthModeChange = (isSignUp: boolean) => {
+        if (isSignUp) {
+            handlePageChange('signup');
+        } else {
+            handlePageChange('login');
+        }
+    };
+
     const handleSeeVotes = () => {
         pageBeforeNav.current = page;
-        setPage('userVotes');
+        handlePageChange('userVotes');
         setIsUserMenuOpen(false);
     };
     
     const handleAccountSettings = () => {
         pageBeforeNav.current = page;
-        setPage('accountSettings');
+        handlePageChange('accountSettings');
         setIsUserMenuOpen(false);
     };
 
@@ -1792,7 +1947,7 @@ const App = () => {
 
     const handleGoToPropose = () => {
         pageBeforeNav.current = page;
-        setPage('propose');
+        setPage('propose'); // 'propose' doesn't have a URL, so use setPage directly
     };
 
     const handleAddBook = async (book: Book, note: string) => {
@@ -1818,7 +1973,7 @@ const App = () => {
         };
 
         await firestore.addDoc(submissionsCollectionRef, newSubmission);
-        setPage(pageBeforeNav.current);
+        handlePageChange(pageBeforeNav.current);
     };
 
     const handleDeleteBook = (firestoreId: string) => {
@@ -2015,14 +2170,15 @@ const App = () => {
     }
 
     if (!user) {
-        return <LoginScreen onLogin={handleLogin} onSignUp={handleSignUp} />;
+        const isSignUpMode = page === 'signup';
+        return <LoginScreen onLogin={handleLogin} onSignUp={handleSignUp} initialMode={isSignUpMode} onModeChange={handleAuthModeChange} />;
     }
 
     if (page === 'propose') {
         const handlePropose = (book: Book, note: string) => {
             return handleAddBook(book, note);
         };
-        return <ProposeBookScreen onPropose={handlePropose} onBack={() => setPage(pageBeforeNav.current)} userSubmissionsCount={userSubmissions.length} existingBookIds={existingBookIds} />;
+        return <ProposeBookScreen onPropose={handlePropose} onBack={() => handlePageChange(pageBeforeNav.current)} userSubmissionsCount={userSubmissions.length} existingBookIds={existingBookIds} />;
     }
 
     const mainPages = new Set(['proposals', 'meetings', 'submissions']);
@@ -2103,9 +2259,9 @@ const App = () => {
                 user={user}
                 onBack={showBackButton ? () => {
                     if (page === 'accountSettings') {
-                        setPage('proposals');
+                        handlePageChange('proposals');
                     } else {
-                        setPage(pageBeforeNav.current);
+                        handlePageChange(pageBeforeNav.current);
                     }
                 } : undefined}
                 titleAction={headerAction}
@@ -2116,12 +2272,12 @@ const App = () => {
                 onSeeVotes={handleSeeVotes}
                 onAccountSettings={handleAccountSettings}
                 activePage={page}
-                setPage={setPage}
+                setPage={handlePageChange}
                 isDesktop={isDesktop}
             />
             
             <div className="app-body">
-                {['proposals', 'meetings', 'submissions'].includes(page) && <BottomNav activePage={page} setPage={setPage} />}
+                {['proposals', 'meetings', 'submissions'].includes(page) && <BottomNav activePage={page} setPage={handlePageChange} />}
                 <main ref={mainRef} onScroll={handleScroll}>
                     {page === 'proposals' && (
                          <div className="card-grid">
@@ -2159,7 +2315,7 @@ const App = () => {
                     )}
                      {page === 'userVotes' && (
                         <div className="content-pane" style={{backgroundColor: 'white', padding: 0}}>
-                            <UserVotesContent userVotes={userVotes} submissions={submissions} voteCounts={userVoteCounts} onResetVotes={() => setIsResetVotesConfirmOpen(true)} onReturnToProposals={() => setPage('proposals')} />
+                            <UserVotesContent userVotes={userVotes} submissions={submissions} voteCounts={userVoteCounts} onResetVotes={() => setIsResetVotesConfirmOpen(true)} onReturnToProposals={() => handlePageChange('proposals')} />
                         </div>
                      )}
                      {page === 'accountSettings' && (
@@ -2167,7 +2323,7 @@ const App = () => {
                             user={user}
                             onUpdateUser={handleUpdateUser}
                             showModal={setModalInfo}
-                            onReturnToProposals={() => setPage('proposals')}
+                            onReturnToProposals={() => handlePageChange('proposals')}
                         />
                      )}
                 </main>

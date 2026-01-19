@@ -244,6 +244,108 @@
 </head>
 <body>
   <div id="root"></div>
+  <script>
+    // Aggressive cache-busting for mobile browsers
+    (function() {
+      const STORAGE_KEY = 'bookClubBuildVersion';
+      const urlParams = new URLSearchParams(window.location.search);
+      
+      // Remove reload params from URL for clean URLs
+      if (urlParams.has('__reload') || urlParams.has('__v') || urlParams.has('__check')) {
+        const cleanUrl = window.location.pathname;
+        if (window.history.replaceState) {
+          window.history.replaceState({}, '', cleanUrl);
+        }
+      }
+      
+      // Try multiple methods to fetch fresh HTML
+      function checkVersion() {
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substring(7);
+        const checkUrl = window.location.pathname + '?__cb=' + timestamp + '&__r=' + random;
+        
+        // Try fetch first (more modern)
+        if (window.fetch) {
+          fetch(checkUrl, {
+            method: 'GET',
+            cache: 'no-store',
+            headers: {
+              'Cache-Control': 'no-cache, no-store, must-revalidate',
+              'Pragma': 'no-cache',
+              'Expires': '0'
+            }
+          }).then(function(response) {
+            if (response.ok) return response.text();
+            throw new Error('Response not ok');
+          }).then(function(html) {
+            processVersion(html);
+          }).catch(function() {
+            // Fallback to XHR if fetch fails
+            tryXHR(checkUrl);
+          });
+        } else {
+          // Fallback to XHR for older browsers
+          tryXHR(checkUrl);
+        }
+      }
+      
+      function tryXHR(url) {
+        try {
+          const xhr = new XMLHttpRequest();
+          xhr.open('GET', url, true);
+          xhr.setRequestHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+          xhr.setRequestHeader('Pragma', 'no-cache');
+          
+          xhr.onload = function() {
+            if (xhr.status === 200) {
+              processVersion(xhr.responseText);
+            }
+          };
+          
+          xhr.onerror = function() {};
+          xhr.send();
+        } catch (e) {
+          // Silently fail
+        }
+      }
+      
+      function processVersion(html) {
+        if (!html) return;
+        
+        const metaMatch = html.match(/<meta\s+name=["']app-version["']\s+content=["'](\d+)["']/i);
+        const scriptMatch = html.match(/window\.__BUILD_VERSION__\s*=\s*(\d+)/);
+        const serverVersion = metaMatch ? metaMatch[1] : (scriptMatch ? scriptMatch[1] : null);
+        
+        if (!serverVersion) return;
+        
+        const cachedVersion = localStorage.getItem(STORAGE_KEY);
+        
+        if (cachedVersion && cachedVersion !== serverVersion) {
+          // New version detected - clear everything and reload
+          localStorage.setItem(STORAGE_KEY, serverVersion);
+          
+          // Clear all possible caches
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              names.forEach(function(name) {
+                caches.delete(name);
+              });
+            });
+          }
+          
+          // Force reload with cache bypass
+          const reloadUrl = window.location.pathname + '?__reload=1&__v=' + serverVersion + '&__t=' + Date.now();
+          window.location.replace(reloadUrl);
+        } else if (!cachedVersion) {
+          // First time - store version
+          localStorage.setItem(STORAGE_KEY, serverVersion);
+        }
+      }
+      
+      // Run check immediately
+      checkVersion();
+    })();
+  </script>
   <script type="module" src="/index.tsx"></script>
 </body>
 </html>
