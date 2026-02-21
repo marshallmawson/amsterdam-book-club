@@ -432,7 +432,7 @@ const BookCard: React.FC<{ book: Submission, onVote: (id: string, dir: 1 | -1) =
                 </div>
             )}
             <div style={{ padding: '12px 16px', marginTop: book.note ? '12px' : 0, borderTop: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-light-color)' }}>Submitted by {book.submittedBy.name}</p>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-light-color)' }}>Submitted by {book.submittedBy.name}{book.createdAt ? ` on ${book.createdAt.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}</p>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <button onClick={handleDownvote} disabled={isVoting} style={{...voteButtonStyles, color: userVote < 0 ? 'var(--danger-color)' : 'var(--text-light-color)'}}><ThumbsDownIcon /></button>
@@ -1306,8 +1306,13 @@ const MeetingCard: React.FC<{ book: Submission, isAdmin: boolean, onSchedule: (i
                     {book.description?.replace(/\*\*/g, '')}
                 </p>
             </div>
-             <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--light-background)' }}>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-light-color)' }}>Submitted by {book.submittedBy.name}</p>
+            {book.note && (
+                <div style={{ margin: '0 16px', backgroundColor: 'var(--light-background)', padding: '12px', borderRadius: '8px', borderLeft: '3px solid var(--border-color)' }}>
+                    <p style={{ fontStyle: 'italic', color: 'var(--text-light-color)', fontSize: '0.9rem' }}>"{book.note}"</p>
+                </div>
+            )}
+             <div style={{ padding: '12px 16px', marginTop: book.note ? '12px' : 0, borderTop: '1px solid var(--border-color)', backgroundColor: 'var(--light-background)' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-light-color)' }}>Submitted by {book.submittedBy.name}{book.createdAt ? ` on ${book.createdAt.toDate().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : ''}</p>
              </div>
         </div>
     );
