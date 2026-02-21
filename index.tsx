@@ -2293,6 +2293,11 @@ const App = () => {
                             )}
                         </div>
                     )}
+                    {page === 'proposals' && user && (
+                        <div className="votes-badge" style={{ backgroundColor: userVoteCounts.remaining === 0 ? 'var(--text-light-color)' : 'var(--primary-color)' }}>
+                            Votes left: {userVoteCounts.remaining}
+                        </div>
+                    )}
                      {page === 'meetings' && (
                         <div className="content-pane">
                             <MeetingsScreen submissions={submissions} isAdmin={isAdmin} onSchedule={handleScheduleClick} />

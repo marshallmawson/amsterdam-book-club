@@ -98,6 +98,19 @@
     .bottom-nav button.active span {
       font-weight: 600;
     }
+    .votes-badge {
+      position: fixed;
+      bottom: 72px;
+      left: 16px;
+      color: white;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      z-index: 11;
+      pointer-events: none;
+    }
     .propose-button-container {
       position: fixed;
       bottom: 65px;
@@ -176,6 +189,10 @@
       }
       .propose-button-container {
         display: none;
+      }
+      .votes-badge {
+        bottom: 24px;
+        left: 48px;
       }
       .card-grid {
         grid-template-columns: 1fr;
