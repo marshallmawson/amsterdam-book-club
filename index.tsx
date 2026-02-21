@@ -1910,8 +1910,10 @@ const App = () => {
                     throw new Error("DOWNVOTE_LIMIT");
                 }
 
-                const currentTotalVotesUsed = Object.values(serverUserVotes).reduce((acc: number, vote: any) => acc + Math.abs(Number(vote) || 0), 0);
-                // FIX: Explicitly cast currentTotalVotesUsed to a Number to resolve potential type inference issues.
+                const activeProposalIds = new Set(submissions.filter(s => !s.isScheduled).map(s => s.firestoreId));
+                const currentTotalVotesUsed = Object.entries(serverUserVotes).reduce((acc: number, [bookId, vote]: [string, any]) => {
+                    return activeProposalIds.has(bookId) ? acc + Math.abs(Number(vote) || 0) : acc;
+                }, 0);
                 const newTotalVotesUsed = Number(currentTotalVotesUsed) - Math.abs(currentVote) + Math.abs(newVote);
 
                 if (newTotalVotesUsed > MAX_VOTES) {
