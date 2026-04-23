@@ -187,7 +187,7 @@ async function searchGoogleBooks(title: string, author: string): Promise<Book | 
                 authors: volInfo.authors || ['Unknown Author'],
                 publishedYear: volInfo.publishedDate ? volInfo.publishedDate.substring(0, 4) : 'N/A',
                 pageCount: volInfo.pageCount || 0,
-                thumbnail: volInfo.imageLinks?.thumbnail || 'https://via.placeholder.com/128x192.png?text=No+Cover',
+                thumbnail: (volInfo.imageLinks?.thumbnail || '').replace('http://', 'https://') || 'https://via.placeholder.com/128x192.png?text=No+Cover',
                 description: volInfo.description || 'No description available.',
                 genre: volInfo.mainCategory || (volInfo.categories ? volInfo.categories[0] : 'Uncategorized'),
                 submittedBy: { uid: '', name: '' },
