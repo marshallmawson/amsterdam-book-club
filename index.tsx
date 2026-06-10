@@ -175,7 +175,7 @@ async function searchGoogleBooks(title: string, author: string): Promise<Book | 
     try {
         let query = `intitle:${encodeURIComponent(title)}`;
         if (author) query += `+inauthor:${encodeURIComponent(author)}`;
-        const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1&printType=books`);
+        const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=1&printType=books&key=${import.meta.env.VITE_FIREBASE_API_KEY}`);
         if (!response.ok) throw new Error('Network response was not ok');
         const data = await response.json();
         if (data.items && data.items.length > 0) {
