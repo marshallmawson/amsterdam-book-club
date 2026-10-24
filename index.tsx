@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleGenAI } from "@google/genai";
 // Import the getDb function and the v8-compatible firestore object
 import { getDb, firestore } from './firebase';
 
@@ -8,12 +7,12 @@ import { getDb, firestore } from './firebase';
 const db = getDb();
 
 
-// --- GEMINI API SETUP ---
-const geminiApiKey = process.env.API_KEY;
-if (!geminiApiKey) {
-    console.error("GEMINI_API_KEY is not set! Please set the GEMINI_API_KEY environment variable.");
+// --- SUMMARY API SETUP ---
+// The Gemini key lives on the summarize service, not in the browser bundle
+const summaryApiUrl = process.env.VITE_SUMMARY_API_URL || '';
+if (!summaryApiUrl) {
+    console.error("VITE_SUMMARY_API_URL is not set! Book summaries will fall back to the original description.");
 }
-const ai = new GoogleGenAI({ apiKey: geminiApiKey || '' });
 
 // --- RESPONSIVE HOOK ---
 const useMediaQuery = (query: string) => {
@@ -136,36 +135,20 @@ async function getGeminiSummary(description: string): Promise<string> {
     if (!description || description.trim() === 'No description available.') {
         return 'No description available.';
     }
-    if (!geminiApiKey) {
-        console.error("Cannot get Gemini summary: API key is not configured");
+    if (!summaryApiUrl) {
         return description.length > 300 ? description.substring(0, 297) + '...' : description;
     }
     try {
-        console.log("Calling Gemini API with key:", geminiApiKey ? geminiApiKey.substring(0, 10) + '...' : 'MISSING');
-        console.log("Current origin:", window.location.origin);
-        console.log("Current hostname:", window.location.hostname);
-        const prompt = `Summarize this book description for a book club in 2-3 concise sentences. Description: "${description}"`;
-        const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
-        return response.text.trim();
-    } catch (error: any) {
-        console.error("Failed to get summary from Gemini:", error);
-        // Log more details about the error
-        console.error("Error Details:", {
-            hasApiKey: !!geminiApiKey,
-            apiKeyLength: geminiApiKey?.length || 0,
-            apiKeyPrefix: geminiApiKey ? geminiApiKey.substring(0, 10) + '...' : 'N/A',
-            errorCode: error?.error?.code || error?.code,
-            errorStatus: error?.error?.status || error?.status,
-            errorMessage: error?.error?.message || error?.message,
-            errorReason: error?.error?.details?.[0]?.reason,
-            fullError: error
+        const response = await fetch(`${summaryApiUrl}/summarize`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ description }),
         });
-        
-        // If it's a 405 error, it means nginx is intercepting the request
-        if (error?.error?.code === 405 || error?.code === 405) {
-            console.error("405 Error: Request is being intercepted by nginx. This suggests the API request is going to the wrong URL.");
-        }
-        
+        if (!response.ok) throw new Error(`Summary request failed: ${response.status}`);
+        const data = await response.json();
+        return data.summary.trim();
+    } catch (error: any) {
+        console.error("Failed to get summary:", error?.message || error);
         return description.length > 300 ? description.substring(0, 297) + '...' : description;
     }
 }

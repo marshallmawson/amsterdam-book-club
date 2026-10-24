@@ -4,7 +4,7 @@ steps:
     args:
       - 'build'
       - '--build-arg'
-      - 'GEMINI_API_KEY=${_GEMINI_API_KEY}'
+      - 'VITE_SUMMARY_API_URL=${_VITE_SUMMARY_API_URL}'
       - '--build-arg'
       - 'VITE_FIREBASE_API_KEY=${_VITE_FIREBASE_API_KEY}'
       - '--build-arg'
