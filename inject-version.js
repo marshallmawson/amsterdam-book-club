@@ -2,6 +2,9 @@
 export function injectBuildVersion() {
   return {
     name: 'inject-build-version',
+    // Only stamp production builds: the dev server re-runs this on every request,
+    // which gives a new version each time and puts the page in a reload loop
+    apply: 'build',
     transformIndexHtml(html) {
       const buildTimestamp = Date.now();
       const versionMeta = `<meta name="app-version" content="${buildTimestamp}">`;

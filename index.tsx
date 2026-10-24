@@ -1523,6 +1523,7 @@ const App = () => {
     const [confirmDeleteInfo, setConfirmDeleteInfo] = useState<{ firestoreId: string; title: string; } | null>(null);
     const [isResetVotesConfirmOpen, setIsResetVotesConfirmOpen] = useState(false);
     const [isConnecting, setIsConnecting] = useState(true);
+    const [isSplashMinElapsed, setIsSplashMinElapsed] = useState(false);
     const [votingInProgress, setVotingInProgress] = useState<Set<string>>(new Set());
     const voteLockRef = useRef(new Set<string>()); // Synchronous lock to prevent race conditions
     const isFirstLoadRef = useRef(true);
@@ -1575,6 +1576,12 @@ const App = () => {
             return dateB - dateA;
         });
     };
+
+    // Keep the splash screen up for a minimum time so it doesn't just flash when the DB loads quickly
+    useEffect(() => {
+        const timer = setTimeout(() => setIsSplashMinElapsed(true), 1500);
+        return () => clearTimeout(timer);
+    }, []);
 
     // Subscribe to real-time submission updates from Firestore
     useEffect(() => {
@@ -2155,8 +2162,21 @@ const App = () => {
         });
     };
 
-    if (isConnecting) {
-        return <div style={{display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center'}}>Connecting to database...</div>
+    if (isConnecting || !isSplashMinElapsed) {
+        return (
+            <div className="splash-screen" role="status" aria-label="Loading No Man's Book Club">
+                <img
+                    src="https://storage.googleapis.com/ai-studio-bucket-944361216321-us-west1/Images/nomans-logo.png"
+                    alt="No Man's Book Club logo"
+                    style={{ maxWidth: '320px', width: '100%', height: 'auto' }}
+                />
+                <img
+                    src="https://storage.googleapis.com/ai-studio-bucket-944361216321-us-west1/Images/nomans-drawing.png"
+                    alt="An illustration of people reading and discussing books."
+                    style={{ maxWidth: '480px', width: '100%', height: 'auto' }}
+                />
+            </div>
+        );
     }
 
     if (!user) {
