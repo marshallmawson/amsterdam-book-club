@@ -38,7 +38,7 @@ interface User {
     email?: string;
 }
 interface Book {
-  id: string; // Google Books API ID
+  id: string; // Open Library work ID ("openlibrary:OL...W") or, for older submissions, a Google Books ID
   title: string;
   authors: string[];
   publishedYear: string;
@@ -150,6 +150,126 @@ async function getGeminiSummary(description: string): Promise<string> {
     } catch (error: any) {
         console.error("Failed to get summary:", error?.message || error);
         return description.length > 300 ? description.substring(0, 297) + '...' : description;
+    }
+}
+
+// Search Open Library first; Google Books is only a backup since it often returns 503s
+async function searchBooks(title: string, author: string): Promise<Book | null> {
+    return (await searchOpenLibrary(title, author)) || (await searchGoogleBooks(title, author));
+}
+
+// Books from different sources have different IDs, so duplicates are also matched on title + author
+function bookMatchKey(title: string, authors: string[]): string {
+    const normalize = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const firstAuthor = normalize(authors?.[0] || '');
+    const authorSurname = firstAuthor.split(' ').pop() || '';
+    return `${normalize(title.split(':')[0])}|${authorSurname}`;
+}
+
+// Page counts are 0 when unknown (common for new releases), so leave them out rather than show "0 pages"
+function formatBookDetails(book: Book, includeYear = true): string {
+    return [
+        includeYear ? book.publishedYear : null,
+        book.pageCount > 0 ? `${book.pageCount} pages` : null,
+        book.genre,
+    ].filter(Boolean).join(' · ');
+}
+
+// Open Library gives a noisy list of subjects rather than one genre. Each genre lists the
+// phrases that count towards it; the genre mentioned most often wins (ties go to the earlier one).
+const OPEN_LIBRARY_FICTION_GENRES: [string, string[]][] = [
+    ['Science Fiction', ['science fiction', 'science-fiction']],
+    ['Fantasy', ['fantasy']],
+    ['Historical Fiction', ['historical fiction']],
+    ['Mystery', ['mystery', 'detective']],
+    ['Thriller', ['thriller', 'suspense']],
+    ['Horror', ['horror']],
+    ['Romance', ['romance', 'love stories']],
+    ['Short Stories', ['short stories']],
+    ['Poetry', ['poetry', 'poems']],
+];
+const OPEN_LIBRARY_NONFICTION_GENRES: [string, string[]][] = [
+    ['Memoir', ['memoir', 'autobiography']],
+    ['Biography', ['biography']],
+    ['History', ['history']],
+    ['Philosophy', ['philosophy']],
+    ['Psychology', ['psychology']],
+    ['Politics', ['politics', 'political science']],
+    ['Science', ['science']],
+    ['Essays', ['essays']],
+];
+
+function pickGenre(subjects: string[] = []): string {
+    const lowerSubjects = subjects.map(subject => subject.toLowerCase());
+    const isNonfictionLabel = (subject: string) => /non-?fiction/.test(subject);
+    const isFiction = !lowerSubjects.some(isNonfictionLabel)
+        && lowerSubjects.some(subject => subject.includes('fiction') || subject.includes('novel'));
+    // Novels are often tagged with topics like "History", so only consider non-fiction genres for non-fiction
+    const candidates = isFiction ? OPEN_LIBRARY_FICTION_GENRES : [...OPEN_LIBRARY_FICTION_GENRES, ...OPEN_LIBRARY_NONFICTION_GENRES];
+
+    let bestGenre = '';
+    let bestCount = 0;
+    for (const [genre, phrases] of candidates) {
+        const count = lowerSubjects.filter(subject => phrases.some(phrase => subject.includes(phrase))).length;
+        if (count > bestCount) {
+            bestGenre = genre;
+            bestCount = count;
+        }
+    }
+    return bestGenre || (isFiction ? 'Fiction' : 'Uncategorized');
+}
+
+async function searchOpenLibrary(title: string, author: string): Promise<Book | null> {
+    if (!title) return null;
+    try {
+        const params = new URLSearchParams({
+            title,
+            limit: '5',
+            fields: 'key,title,author_name,first_publish_year,number_of_pages_median,cover_i,subject',
+        });
+        if (author) params.set('author', author);
+        const response = await fetch(`https://openlibrary.org/search.json?${params}`);
+        if (!response.ok) throw new Error(`Open Library search failed: ${response.status}`);
+        const data = await response.json();
+        // Open Library returns the closest match even when it doesn't have the book (e.g. very new
+        // releases), so only accept a result whose title contains every word that was searched for
+        const searchWords = title.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ');
+        const doc = data.docs?.find((d: any) => {
+            const resultWords = new Set((d.title || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' '));
+            return searchWords.every(word => resultWords.has(word));
+        });
+        if (!doc) return null;
+
+        // Descriptions aren't in search results, only on the work record
+        let description = 'No description available.';
+        try {
+            const workResponse = await fetch(`https://openlibrary.org${doc.key}.json`);
+            if (workResponse.ok) {
+                const work = await workResponse.json();
+                const rawDescription = typeof work.description === 'string' ? work.description : work.description?.value;
+                // Some descriptions end with a "----------" section listing related editions
+                const cleaned = rawDescription?.split(/\n-{3,}/)[0].trim();
+                if (cleaned) description = cleaned;
+            }
+        } catch (error) {
+            console.error("Failed to fetch Open Library description:", error);
+        }
+
+        return {
+            id: `openlibrary:${doc.key.replace('/works/', '')}`,
+            title: doc.title || 'No Title',
+            authors: doc.author_name?.length ? doc.author_name : ['Unknown Author'],
+            publishedYear: doc.first_publish_year ? String(doc.first_publish_year) : 'N/A',
+            pageCount: doc.number_of_pages_median || 0,
+            thumbnail: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg` : 'https://via.placeholder.com/128x192.png?text=No+Cover',
+            description,
+            genre: pickGenre(doc.subject),
+            submittedBy: { uid: '', name: '' },
+            note: '',
+        };
+    } catch (error) {
+        console.error("Failed to fetch from Open Library:", error);
+        return null;
     }
 }
 
@@ -402,7 +522,7 @@ const BookCard: React.FC<{ book: Submission, onVote: (id: string, dir: 1 | -1) =
                     <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '4px' }}>{book.title}</h3>
                     <p style={{ fontSize: '0.85rem', color: 'var(--text-light-color)', marginBottom: '8px' }}>by {book.authors.join(', ')}</p>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-light-color)' }}>
-                        {book.publishedYear} · {book.pageCount} pages · {book.genre}
+                        {formatBookDetails(book)}
                     </p>
                      <p style={{ fontSize: '0.95rem', marginTop: '12px', lineHeight: 1.5 }}>
                         {book.description?.replace(/\*\*/g, '')}
@@ -473,7 +593,7 @@ const MySubmissionCard: React.FC<{ book: Submission, onDelete: (id: string) => v
                         <button onClick={() => onDelete(book.firestoreId)} disabled={isEditing} style={{ background: 'var(--light-background)', color: 'var(--danger-color)', width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: isEditing ? 0.5 : 1, flexShrink: 0 }} aria-label="Delete submission"><TrashIcon /></button>
                     </div>
                     <p style={{ fontSize: '0.8rem', color: 'var(--text-light-color)', marginBottom: '12px' }}>
-                       {book.publishedYear} · {book.pageCount} pages · {book.genre}
+                       {formatBookDetails(book)}
                     </p>
                     <p style={{ fontSize: '0.95rem', lineHeight: 1.5 }}>
                         {book.description?.replace(/\*\*/g, '')}
@@ -906,6 +1026,8 @@ const ProposeBookScreen = ({ onPropose, onBack, userSubmissionsCount, existingBo
     const [debouncedAuthor, setDebouncedAuthor] = useState('');
     const [searchResult, setSearchResult] = useState<Book | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const [completedSearch, setCompletedSearch] = useState(''); // "title|author" of the last finished search
+    const [manualPageCount, setManualPageCount] = useState(''); // Only used when the search found no page count
     const [note, setNote] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -921,9 +1043,11 @@ const ProposeBookScreen = ({ onPropose, onBack, userSubmissionsCount, existingBo
         if (debouncedTitle) {
             setIsLoading(true);
             setSearchResult(null);
-            searchGoogleBooks(debouncedTitle, debouncedAuthor).then(book => {
+            searchBooks(debouncedTitle, debouncedAuthor).then(book => {
                 setSearchResult(book);
+                setManualPageCount('');
                 setIsLoading(false);
+                setCompletedSearch(`${debouncedTitle}|${debouncedAuthor}`);
             });
         } else {
             setSearchResult(null);
@@ -931,13 +1055,19 @@ const ProposeBookScreen = ({ onPropose, onBack, userSubmissionsCount, existingBo
     }, [debouncedTitle, debouncedAuthor]);
 
     const canSubmit = userSubmissionsCount < MAX_SUBMISSIONS;
-    const isAlreadySubmitted = searchResult ? existingBookIds.has(searchResult.id) : false;
+    const isAlreadySubmitted = searchResult
+        ? existingBookIds.has(searchResult.id) || existingBookIds.has(bookMatchKey(searchResult.title, searchResult.authors))
+        : false;
 
     const handleSubmit = async () => {
         if (searchResult && canSubmit && !isSubmitting && !isAlreadySubmitted) {
             setIsSubmitting(true);
             try {
-                await onPropose(searchResult, note);
+                const enteredPageCount = parseInt(manualPageCount, 10);
+                const book = searchResult.pageCount > 0 || !(enteredPageCount > 0)
+                    ? searchResult
+                    : { ...searchResult, pageCount: enteredPageCount };
+                await onPropose(book, note);
             } catch (error) {
                 // The modal is shown by the parent component. We just need to stop loading.
                 setIsSubmitting(false);
@@ -982,6 +1112,18 @@ const ProposeBookScreen = ({ onPropose, onBack, userSubmissionsCount, existingBo
 
                     {isLoading && <p style={{ textAlign: 'center' }}>Searching...</p>}
 
+                    {!isLoading && debouncedTitle && !searchResult && completedSearch === `${debouncedTitle}|${debouncedAuthor}` && (
+                        <p style={{ textAlign: 'center', color: 'var(--text-light-color)' }}>
+                            No book found. Try adding the author's name, or check the spelling of the title.
+                        </p>
+                    )}
+
+                    {!isLoading && searchResult && !debouncedAuthor && (
+                        <p style={{ textAlign: 'center', color: 'var(--text-light-color)', fontSize: '0.9rem', marginBottom: '12px' }}>
+                            Not the right book? Try adding the author's name.
+                        </p>
+                    )}
+
                     {searchResult && (
                         <div style={{ backgroundColor: 'var(--app-background)', border: '1px solid var(--border-color)', borderRadius: 'var(--border-radius)', padding: '16px', boxShadow: 'var(--shadow)' }}>
                             <div style={{ textAlign: 'center', marginBottom: '16px' }}>
@@ -990,9 +1132,26 @@ const ProposeBookScreen = ({ onPropose, onBack, userSubmissionsCount, existingBo
                             <h2 style={{ textAlign: 'center', fontSize: '1.2rem', fontWeight: 600, marginBottom: '4px' }}>{searchResult.title}</h2>
                             <p style={{ textAlign: 'center', color: 'var(--text-light-color)', marginBottom: '12px', fontSize: '0.95rem' }}>by {searchResult.authors.join(', ')}</p>
                             <div style={{ display: 'flex', justifyContent: 'center', gap: '16px', color: 'var(--text-light-color)', marginBottom: '16px', fontSize: '0.85rem' }}>
-                                <span>{searchResult.pageCount} pages</span> · <span>{searchResult.genre}</span>
+                                <span>{formatBookDetails(searchResult, false)}</span>
                             </div>
                             <p style={{ fontSize: '0.95rem', lineHeight: 1.5, marginBottom: '24px' }}>{searchResult.description}</p>
+                            {searchResult.pageCount <= 0 && (
+                                <div style={{ marginBottom: '24px' }}>
+                                    <h3 style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '4px' }}>Number of pages (optional)</h3>
+                                    <p style={{ color: 'var(--text-light-color)', fontSize: '0.9rem', marginBottom: '8px' }}>
+                                        We couldn't find the number of pages for this book. You can add it if you know it.
+                                    </p>
+                                    <input
+                                        type="number"
+                                        inputMode="numeric"
+                                        min={1}
+                                        value={manualPageCount}
+                                        onChange={e => setManualPageCount(e.target.value)}
+                                        placeholder="e.g. 320"
+                                        style={{ width: '120px', padding: '6px 10px', fontSize: '0.9rem' }}
+                                    />
+                                </div>
+                            )}
                              {isAlreadySubmitted && !isSubmitting && <p style={{color: 'var(--danger-color)', textAlign: 'center', fontWeight: 500, marginBottom: '16px'}}>This book has already been submitted.</p>}
                             <h3 style={{ fontWeight: 600, marginBottom: '8px' }}>Add a personal note (optional)</h3>
                             <textarea
@@ -1198,7 +1357,7 @@ const MeetingCard: React.FC<{ book: Submission, isAdmin: boolean, onSchedule: (i
         const detailsParts = [
             `Book: ${book.title}`,
             `Author: ${book.authors.join(', ')}`,
-            `Book Details: ${book.genre}, ${book.pageCount} pages, published ${book.publishedYear}`,
+            `Book Details: ${book.genre}, ${book.pageCount > 0 ? `${book.pageCount} pages, ` : ''}published ${book.publishedYear}`,
             `Description: ${book.description?.replace(/\*\*/g, '')}`,
             `Submitted by: ${book.submittedBy.name}`
         ];
@@ -1281,7 +1440,7 @@ const MeetingCard: React.FC<{ book: Submission, isAdmin: boolean, onSchedule: (i
                         <h3 style={{ fontSize: '1.05rem', fontWeight: 600, marginBottom: '4px' }}>{book.title}</h3>
                         <p style={{ fontSize: '0.85rem', color: 'var(--text-light-color)', marginBottom: '4px' }}>by {book.authors.join(', ')}</p>
                         <p style={{ fontSize: '0.8rem', color: 'var(--text-light-color)', marginTop: '4px' }}>
-                            {book.publishedYear} · {book.pageCount} pages · {book.genre}
+                            {formatBookDetails(book)}
                         </p>
                     </div>
                 </div>
@@ -1709,7 +1868,8 @@ const App = () => {
         return dateB - dateA;
     }), [submissions, user]);
 
-    const existingBookIds = useMemo(() => new Set(submissions.map(s => s.id)), [submissions]);
+    // Holds both IDs and title + author keys, so a book found through a different source still counts as submitted
+    const existingBookIds = useMemo(() => new Set(submissions.flatMap(s => [s.id, bookMatchKey(s.title, s.authors)])), [submissions]);
     
     const proposals = useMemo(() => displayedSubmissions.filter(book => !book.isScheduled), [displayedSubmissions]);
 
@@ -1953,7 +2113,9 @@ const App = () => {
         const submissionsCollectionRef = firestore.collection(db, "submissions");
         const q = firestore.query(submissionsCollectionRef, firestore.where("id", "==", book.id));
         const querySnapshot = await firestore.getDocs(q);
-        if (!querySnapshot.empty) {
+        const newBookKey = bookMatchKey(book.title, book.authors);
+        const matchesExistingTitle = submissionsRef.current.some(s => bookMatchKey(s.title, s.authors) === newBookKey);
+        if (!querySnapshot.empty || matchesExistingTitle) {
              setModalInfo({ title: "Already Submitted", message: "This book has already been submitted." });
              return Promise.reject();
         }
