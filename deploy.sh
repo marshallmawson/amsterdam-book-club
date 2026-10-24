@@ -10,7 +10,11 @@ set -e
 PROJECT_ID="no-mans-book-club"
 PROJECT_NUMBER="944361216321"
 SERVICE_NAME="no-man-s-book-club"  # Based on your app URL
+SUMMARY_SERVICE_NAME="summarize-service"
+SERVICE_ACCOUNT="book-club-service-account@${PROJECT_ID}.iam.gserviceaccount.com"
 REGION="us-west1"
+# Sites allowed to call the summary service (CORS)
+ALLOWED_ORIGINS="https://nomansbookclub.com,https://www.nomansbookclub.com,https://no-man-s-book-club-315949479081.us-west1.run.app,https://no-man-s-book-club-944361216321.us-west1.run.app,https://no-man-s-book-club-jbhzusmpaa-uw.a.run.app"
 IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 
 # Colors for output
@@ -31,9 +35,6 @@ fi
 
 # Check if required environment variables are set
 MISSING_VARS=()
-if [ -z "$GEMINI_API_KEY" ]; then
-    MISSING_VARS+=("GEMINI_API_KEY")
-fi
 if [ -z "$VITE_FIREBASE_API_KEY" ]; then
     MISSING_VARS+=("VITE_FIREBASE_API_KEY")
 fi
@@ -63,12 +64,28 @@ echo -e "${GREEN}Enabling required APIs...${NC}"
 gcloud services enable cloudbuild.googleapis.com
 gcloud services enable run.googleapis.com
 gcloud services enable containerregistry.googleapis.com
+gcloud services enable artifactregistry.googleapis.com
+
+# Deploy the summary service first; the Gemini key comes from Secret Manager
+echo -e "${GREEN}Deploying ${SUMMARY_SERVICE_NAME}...${NC}"
+gcloud run deploy ${SUMMARY_SERVICE_NAME} \
+    --source=summarize-service \
+    --region=${REGION} \
+    --service-account=${SERVICE_ACCOUNT} \
+    --set-secrets=GEMINI_API_KEY=gemini-api-key:latest \
+    --set-env-vars="^;^ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" \
+    --allow-unauthenticated \
+    --max-instances=3 \
+    --memory=256Mi \
+    --quiet
+SUMMARY_API_URL=$(gcloud run services describe ${SUMMARY_SERVICE_NAME} --region ${REGION} --format 'value(status.url)')
+echo -e "${GREEN}Summary service URL: ${SUMMARY_API_URL}${NC}"
 
 # Use Cloud Build to build and deploy (no Docker Desktop needed!)
 echo -e "${GREEN}Building and deploying with Cloud Build (no local Docker required)...${NC}"
 gcloud builds submit \
     --config=cloudbuild.yaml \
-    --substitutions=_GEMINI_API_KEY="${GEMINI_API_KEY}",_VITE_FIREBASE_API_KEY="${VITE_FIREBASE_API_KEY}",_VITE_FIREBASE_AUTH_DOMAIN="${VITE_FIREBASE_AUTH_DOMAIN}",_VITE_FIREBASE_PROJECT_ID="${VITE_FIREBASE_PROJECT_ID}",_VITE_FIREBASE_STORAGE_BUCKET="${VITE_FIREBASE_STORAGE_BUCKET}",_VITE_FIREBASE_MESSAGING_SENDER_ID="${VITE_FIREBASE_MESSAGING_SENDER_ID}",_VITE_FIREBASE_APP_ID="${VITE_FIREBASE_APP_ID}",_VITE_FIREBASE_MEASUREMENT_ID="${VITE_FIREBASE_MEASUREMENT_ID}",_SERVICE_NAME="${SERVICE_NAME}",_REGION="${REGION}"
+    --substitutions=_VITE_SUMMARY_API_URL="${SUMMARY_API_URL}",_VITE_FIREBASE_API_KEY="${VITE_FIREBASE_API_KEY}",_VITE_FIREBASE_AUTH_DOMAIN="${VITE_FIREBASE_AUTH_DOMAIN}",_VITE_FIREBASE_PROJECT_ID="${VITE_FIREBASE_PROJECT_ID}",_VITE_FIREBASE_STORAGE_BUCKET="${VITE_FIREBASE_STORAGE_BUCKET}",_VITE_FIREBASE_MESSAGING_SENDER_ID="${VITE_FIREBASE_MESSAGING_SENDER_ID}",_VITE_FIREBASE_APP_ID="${VITE_FIREBASE_APP_ID}",_VITE_FIREBASE_MEASUREMENT_ID="${VITE_FIREBASE_MEASUREMENT_ID}",_SERVICE_NAME="${SERVICE_NAME}",_REGION="${REGION}"
 
 echo -e "${GREEN}Deployment complete!${NC}"
 SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --region ${REGION} --format 'value(status.url)' 2>/dev/null || echo "N/A")

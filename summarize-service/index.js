@@ -60,7 +60,8 @@ const server = http.createServer(async (req, res) => {
         return res.end();
     }
 
-    if (req.method === 'GET' && req.url === '/healthz') {
+    // Cloud Run reserves paths ending in "z", so this can't be /healthz
+    if (req.method === 'GET' && req.url === '/health') {
         return sendJson(res, 200, { ok: true });
     }
 
