@@ -1521,16 +1521,16 @@ const App = () => {
         const savedUser = localStorage.getItem('bookClubUser');
         return savedUser ? JSON.parse(savedUser) : null;
     });
-    // Initialize page from URL or default to 'login' if not logged in, 'proposals' if logged in
+    // Initialize page from URL or default to 'login' if not logged in, 'meetings' if logged in
     const getInitialPage = (): Page => {
         const path = window.location.pathname;
         const pageFromPath = pathToPage(path);
-        // If user is logged in and on login/signup page, default to proposals
+        // If user is logged in and on login/signup page, default to meetings
         const savedUser = localStorage.getItem('bookClubUser');
         if (savedUser && (pageFromPath === 'login' || pageFromPath === 'signup')) {
-            return 'proposals';
+            return 'meetings';
         }
-        return pageFromPath || (savedUser ? 'proposals' : 'login');
+        return pageFromPath || (savedUser ? 'meetings' : 'login');
     };
     const [page, setPage] = useState<Page>(getInitialPage);
     const [submissions, setSubmissions] = useState<Submission[]>([]); // Source of truth from Firestore
@@ -1547,7 +1547,7 @@ const App = () => {
     const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
     const [schedulingBook, setSchedulingBook] = useState<Submission | null>(null);
     const mainRef = useRef<HTMLElement>(null);
-    const pageBeforeNav = useRef<Page>('proposals');
+    const pageBeforeNav = useRef<Page>('meetings');
     submissionsRef.current = submissions;
 
     const isDesktop = useMediaQuery('(min-width: 768px)');
@@ -1646,10 +1646,10 @@ const App = () => {
                 setPage('login');
             }
         } else {
-            // If logged in and on login/signup page, redirect to proposals
+            // If logged in and on login/signup page, redirect to meetings
             if (page === 'login' || page === 'signup') {
-                window.history.replaceState({}, '', '/proposals');
-                setPage('proposals');
+                window.history.replaceState({}, '', '/meetings');
+                setPage('meetings');
             } else {
                 // Ensure URL matches page state
                 const path = window.location.pathname;
@@ -1657,8 +1657,8 @@ const App = () => {
                 if (pageFromPath && pageFromPath !== page && pageFromPath !== 'login' && pageFromPath !== 'signup') {
                     setPage(pageFromPath);
                 } else if (pageFromPath === null || pageFromPath === 'login' || pageFromPath === 'signup') {
-                    window.history.replaceState({}, '', '/proposals');
-                    setPage('proposals');
+                    window.history.replaceState({}, '', '/meetings');
+                    setPage('meetings');
                 }
             }
         }
@@ -1672,9 +1672,9 @@ const App = () => {
             if (pageFromPath !== null) {
                 setPage(pageFromPath);
             } else {
-                // Invalid route, redirect to /proposals
-                window.history.replaceState({}, '', '/proposals');
-                setPage('proposals');
+                // Invalid route, redirect to /meetings
+                window.history.replaceState({}, '', '/meetings');
+                setPage('meetings');
             }
         };
 
@@ -1773,8 +1773,8 @@ const App = () => {
             };
             localStorage.setItem('bookClubUser', JSON.stringify(loggedInUser));
             setUser(loggedInUser);
-            // Redirect to proposals after login
-            handlePageChange('proposals');
+            // Redirect to meetings after login
+            handlePageChange('meetings');
             return null; // Success
         } catch (error) {
             console.error("Login error:", error);
@@ -1818,8 +1818,8 @@ const App = () => {
             };
             localStorage.setItem('bookClubUser', JSON.stringify(newUser));
             setUser(newUser);
-            // Redirect to proposals after signup
-            handlePageChange('proposals');
+            // Redirect to meetings after signup
+            handlePageChange('meetings');
             return null; // Success
         } catch (error) {
             console.error("Sign up error:", error);
