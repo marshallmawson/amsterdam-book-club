@@ -65,17 +65,19 @@ gcloud services enable cloudbuild.googleapis.com
 gcloud services enable run.googleapis.com
 gcloud services enable containerregistry.googleapis.com
 gcloud services enable artifactregistry.googleapis.com
+gcloud services enable aiplatform.googleapis.com
 
-# Deploy the summary service first; the Gemini key comes from Secret Manager
+# Deploy the summary service first. It calls Gemini through Vertex AI as the
+# service account, so no API key is involved.
 echo -e "${GREEN}Deploying ${SUMMARY_SERVICE_NAME}...${NC}"
 gcloud run deploy ${SUMMARY_SERVICE_NAME} \
     --source=summarize-service \
     --region=${REGION} \
     --service-account=${SERVICE_ACCOUNT} \
-    --set-secrets=GEMINI_API_KEY=gemini-api-key:latest \
-    --set-env-vars="^;^ALLOWED_ORIGINS=${ALLOWED_ORIGINS}" \
+    --clear-secrets \
+    --set-env-vars="^;^ALLOWED_ORIGINS=${ALLOWED_ORIGINS};GOOGLE_CLOUD_PROJECT=${PROJECT_ID};GOOGLE_CLOUD_LOCATION=global" \
     --allow-unauthenticated \
-    --max-instances=3 \
+    --max-instances=1 \
     --memory=256Mi \
     --quiet
 SUMMARY_API_URL=$(gcloud run services describe ${SUMMARY_SERVICE_NAME} --region ${REGION} --format 'value(status.url)')
